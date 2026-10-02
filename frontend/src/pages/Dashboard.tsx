@@ -77,18 +77,21 @@ export default function Dashboard() {
     );
   }
 
-  // Derived values for sensors
   const accValue = latestSensors 
     ? Math.max(Math.abs(latestSensors.accel_x), Math.abs(latestSensors.accel_y), Math.abs(latestSensors.accel_z - 9.8)).toFixed(2)
     : '0.00';
 
+  const gyroValue = latestSensors 
+    ? Math.max(Math.abs(latestSensors.gyro_x), Math.abs(latestSensors.gyro_y), Math.abs(latestSensors.gyro_z)).toFixed(2)
+    : '0.00';
+
   const sensorData = [
     { title: 'Alcohol Sensor', value: latestSensors ? latestSensors.alcohol_value.toFixed(2) : '--', unit: 'raw', icon: 'alcohol', status: (latestSensors && latestSensors.alcohol_value > 1150) ? 'Warning' : 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
-    { title: 'Motion Sensor', value: accValue, unit: 'g', icon: 'motion', status: parseFloat(accValue) > 2.5 ? 'Warning' : 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
+    { title: 'Acceleration', value: accValue, unit: 'g', icon: 'motion', status: parseFloat(accValue) > 2.5 ? 'Warning' : 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
+    { title: 'Gyroscope', value: gyroValue, unit: '°/s', icon: 'motion', status: parseFloat(gyroValue) > 150 ? 'Warning' : 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
     { title: 'Temperature', value: latestSensors ? latestSensors.temperature.toFixed(1) : '--', unit: '°C', icon: 'temp', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
     { title: 'GPS', value: (latestSensors && latestSensors.latitude) ? `${latestSensors.latitude.toFixed(4)}° N` : '--', subValue: (latestSensors && latestSensors.longitude) ? `${latestSensors.longitude.toFixed(4)}° E` : '--', unit: '', icon: 'gps', status: (latestSensors && latestSensors.latitude) ? 'Connected' : 'Disconnected', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
-    { title: 'Engine Status', value: vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'ON' : 'OFF', unit: '', icon: 'engine', status: vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'Running' : 'Stopped', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
-    { title: 'System Voltage', value: '12.6', unit: 'V', icon: 'battery', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
+    { title: 'Simulated Engine', value: vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'ON' : 'OFF', unit: '', icon: 'engine', status: vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'Running' : 'Stopped', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
   ];
 
   const mappedEvents = recentEvents.map(e => ({
@@ -107,8 +110,13 @@ export default function Dashboard() {
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-5" data-purpose="status-overview-section">
         {/* Current Vehicle Status Card */}
         <div className="lg:col-span-7 bg-brand-surface border border-brand-border rounded-2xl p-6 flex flex-col justify-between shadow-lg relative" data-purpose="vehicle-status-card">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-semibold text-brand-secondaryText uppercase tracking-wider">Current Vehicle Status</h3>
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-brand-secondaryText uppercase tracking-wider">Current Vehicle Status</h3>
+              <p className="text-[10px] text-brand-muted mt-1 uppercase tracking-widest font-semibold">
+                Simulated Hardware State • Engine: {vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'ON' : 'OFF'} • Buzzer: {vehicleStatus?.buzzer_action > 0 ? 'ACTIVE' : 'OFF'}
+              </p>
+            </div>
             <div className={`px-2 py-1 rounded text-[10px] font-bold ${wsStatus === 'connected' ? 'bg-brand-safe/20 text-brand-safe' : 'bg-brand-critical/20 text-brand-critical'}`}>
               LIVE CONNECTION: {wsStatus.toUpperCase()}
             </div>

@@ -6,7 +6,7 @@ from datetime import datetime
 
 BASE_URL = "http://127.0.0.1:8000/api"
 
-def get_base_reading(device_id):
+def get_base_reading(device_id, current_lat, current_lon):
     return {
         "device_id": device_id,
         "alcohol_value": 300 + random.uniform(-10, 10),
@@ -17,8 +17,8 @@ def get_base_reading(device_id):
         "gyro_y": 0.0 + random.uniform(-1, 1),
         "gyro_z": 0.0 + random.uniform(-1, 1),
         "temperature": 30.0 + random.uniform(-0.5, 0.5),
-        "latitude": 18.5204 + random.uniform(-0.0001, 0.0001),
-        "longitude": 73.8567 + random.uniform(-0.0001, 0.0001),
+        "latitude": current_lat,
+        "longitude": current_lon,
         "blow_detected": False
     }
 
@@ -71,12 +71,19 @@ def run_simulation(args):
         print("Please start the FastAPI backend first using 'uvicorn main:app'.")
         return
 
+    current_lat = args.lat
+    current_lon = args.lon
+    
     step = 0
     try:
         while True:
             current_scenario = scenario_sequence[step % len(scenario_sequence)]
             
-            payload = get_base_reading(args.device_id)
+            # Simulate smooth movement
+            current_lat += random.uniform(0.00001, 0.00005)
+            current_lon += random.uniform(0.00001, 0.00005)
+            
+            payload = get_base_reading(args.device_id, current_lat, current_lon)
             payload = apply_scenario(payload, current_scenario)
             
             try:
@@ -113,6 +120,8 @@ if __name__ == "__main__":
     parser.add_argument("--interval", type=float, default=1.0, help="Interval between requests in seconds")
     parser.add_argument("--device_id", type=str, default="SAFERIDE-001", help="Device ID to simulate")
     parser.add_argument("--reset", action="store_true", help="Reset vehicle after stopping")
+    parser.add_argument("--lat", type=float, default=18.5204, help="Starting latitude")
+    parser.add_argument("--lon", type=float, default=73.8567, help="Starting longitude")
     
     args = parser.parse_args()
     run_simulation(args)
