@@ -13,13 +13,19 @@ class SensorDataCreate(BaseModel):
     gyro_y: float
     gyro_z: float
     temperature: float
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    blow_detected: Optional[bool] = False
 
 class SensorDataResponse(BaseModel):
     success: bool
-    message: str
     reading_id: int
+    status: str
+    risk_score: int
+    alcohol_detected: bool
+    rash_driving_detected: bool
+    engine_state: int
+    buzzer_action: int
 
 class VehicleResponse(BaseModel):
     id: int

@@ -6,6 +6,7 @@ from schemas.schemas import (
     SensorDataCreate, SensorDataResponse, VehicleResponse, 
     SystemStatusResponse, RiskEventResponse, SensorReadingResponse, ResetResponse
 )
+from engine.risk_engine import RiskEngine
 
 router = APIRouter()
 
@@ -63,13 +64,59 @@ def ingest_sensor_data(data: SensorDataCreate, db: Session = Depends(get_db)):
         accel_x=data.accel_x, accel_y=data.accel_y, accel_z=data.accel_z,
         gyro_x=data.gyro_x, gyro_y=data.gyro_y, gyro_z=data.gyro_z,
         temperature=data.temperature,
-        latitude=data.latitude, longitude=data.longitude
+        latitude=data.latitude if data.latitude is not None else None,
+        longitude=data.longitude if data.longitude is not None else None
     )
     db.add(reading)
+    
+    # Run Risk Engine
+    decision = RiskEngine.evaluate(data)
+    
+    # Update SystemStatus
+    status = db.query(SystemStatus).filter(SystemStatus.vehicle_id == vehicle.id).first()
+    if not status:
+        status = SystemStatus(vehicle_id=vehicle.id)
+        db.add(status)
+        
+    previous_status = status.current_status
+    
+    status.current_risk_score = decision["risk_score"]
+    status.current_status = decision["status"]
+    status.engine_state = "ON" if decision["engine_state"] == 1 else "OFF"
+    status.buzzer_state = str(decision["buzzer_action"]) + " sec" if decision["buzzer_action"] > 0 else "OFF"
+    status.gps_connected = (data.latitude is not None and data.longitude is not None)
+    
+    # Create Risk Event only if transition or meaningfully elevated
+    # For prototype: Create event if status changes, OR if we transitioned to/stay in CRITICAL but previous wasn't CRITICAL?
+    # Actually, create if current_status != previous_status, or if it's the very first reading
+    if previous_status != decision["status"]:
+        event = RiskEvent(
+            vehicle_id=vehicle.id,
+            risk_score=decision["risk_score"],
+            status=decision["status"],
+            reason=decision["reason"],
+            alcohol_status="DETECTED" if decision["alcohol_detected"] else "NORMAL",
+            rash_driving_status="DETECTED" if decision["rash_driving_detected"] else "NORMAL",
+            buzzer_action=str(decision["buzzer_action"]),
+            engine_state="ON" if decision["engine_state"] == 1 else "OFF",
+            latitude=data.latitude,
+            longitude=data.longitude
+        )
+        db.add(event)
+
     db.commit()
     db.refresh(reading)
     
-    return SensorDataResponse(success=True, message="Sensor data received", reading_id=reading.id)
+    return SensorDataResponse(
+        success=True, 
+        reading_id=reading.id,
+        status=decision["status"].value,
+        risk_score=decision["risk_score"],
+        alcohol_detected=decision["alcohol_detected"],
+        rash_driving_detected=decision["rash_driving_detected"],
+        engine_state=decision["engine_state"],
+        buzzer_action=decision["buzzer_action"]
+    )
 
 @router.post("/vehicles/{vehicle_id}/reset", response_model=ResetResponse)
 def reset_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
