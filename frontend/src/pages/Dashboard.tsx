@@ -1,30 +1,118 @@
 import SensorCard from '../components/SensorCard';
 import EventCard from '../components/EventCard';
 
+import { useState, useEffect } from 'react';
+import SensorCard from '../components/SensorCard';
+import EventCard from '../components/EventCard';
+import { useWebSocket } from '../hooks/useWebSocket';
+
 export default function Dashboard() {
+  const VEHICLE_ID = 1;
+  const REST_API_URL = `http://127.0.0.1:8000/api/vehicles/${VEHICLE_ID}`;
+  const WS_URL = `ws://127.0.0.1:8000/api/ws/${VEHICLE_ID}`;
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [vehicleStatus, setVehicleStatus] = useState<any>(null);
+  const [recentEvents, setRecentEvents] = useState<any[]>([]);
+  const [latestSensors, setLatestSensors] = useState<any>(null);
+
+  const { status: wsStatus, lastMessage } = useWebSocket(WS_URL);
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const [statusRes, eventsRes, sensorsRes] = await Promise.all([
+          fetch(`${REST_API_URL}/status`),
+          fetch(`${REST_API_URL}/events`),
+          fetch(`${REST_API_URL}/sensor-readings?limit=1`)
+        ]);
+        
+        if (statusRes.ok) setVehicleStatus(await statusRes.json());
+        if (eventsRes.ok) setRecentEvents(await eventsRes.json());
+        if (sensorsRes.ok) {
+          const sensors = await sensorsRes.json();
+          if (sensors.length > 0) setLatestSensors(sensors[0]);
+        }
+      } catch (e) {
+        console.error("Failed to fetch initial data", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (lastMessage) {
+      if (lastMessage.type === 'vehicle_status') {
+        setVehicleStatus(lastMessage);
+        setLatestSensors({
+          alcohol_value: lastMessage.alcohol_value,
+          accel_x: lastMessage.accel_x,
+          accel_y: lastMessage.accel_y,
+          accel_z: lastMessage.accel_z,
+          gyro_x: lastMessage.gyro_x,
+          gyro_y: lastMessage.gyro_y,
+          gyro_z: lastMessage.gyro_z,
+          temperature: lastMessage.temperature,
+          latitude: lastMessage.latitude,
+          longitude: lastMessage.longitude,
+          timestamp: lastMessage.timestamp
+        });
+      } else if (lastMessage.type === 'safety_event') {
+        setRecentEvents(prev => {
+          // Prevent duplicates by ID
+          if (prev.some(e => e.id === lastMessage.id)) return prev;
+          return [lastMessage, ...prev].slice(0, 50); // keep a reasonable size
+        });
+      }
+    }
+  }, [lastMessage]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center p-6 bg-brand-background text-white">
+        Loading vehicle dashboard...
+      </div>
+    );
+  }
+
+  // Derived values for sensors
+  const accValue = latestSensors 
+    ? Math.max(Math.abs(latestSensors.accel_x), Math.abs(latestSensors.accel_y), Math.abs(latestSensors.accel_z - 9.8)).toFixed(2)
+    : '0.00';
+
   const sensorData = [
-    { title: 'Alcohol Sensor', value: '0.02', unit: 'mg/L', icon: 'alcohol', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
-    { title: 'Motion Sensor', value: '0.12', unit: 'g', icon: 'motion', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
-    { title: 'Temperature', value: '32.4', unit: '°C', icon: 'temp', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
-    { title: 'GPS', value: '18.5204° N', subValue: '73.8567° E', unit: '', icon: 'gps', status: 'Connected', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
-    { title: 'Engine Status', value: 'ON', unit: '', icon: 'engine', status: 'Running', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
+    { title: 'Alcohol Sensor', value: latestSensors ? latestSensors.alcohol_value.toFixed(2) : '--', unit: 'raw', icon: 'alcohol', status: (latestSensors && latestSensors.alcohol_value > 1150) ? 'Warning' : 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
+    { title: 'Motion Sensor', value: accValue, unit: 'g', icon: 'motion', status: parseFloat(accValue) > 2.5 ? 'Warning' : 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
+    { title: 'Temperature', value: latestSensors ? latestSensors.temperature.toFixed(1) : '--', unit: '°C', icon: 'temp', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-border'] },
+    { title: 'GPS', value: (latestSensors && latestSensors.latitude) ? `${latestSensors.latitude.toFixed(4)}° N` : '--', subValue: (latestSensors && latestSensors.longitude) ? `${latestSensors.longitude.toFixed(4)}° E` : '--', unit: '', icon: 'gps', status: (latestSensors && latestSensors.latitude) ? 'Connected' : 'Disconnected', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
+    { title: 'Engine Status', value: vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'ON' : 'OFF', unit: '', icon: 'engine', status: vehicleStatus?.engine_state === "ON" || vehicleStatus?.engine_state === 1 ? 'Running' : 'Stopped', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
     { title: 'System Voltage', value: '12.6', unit: 'V', icon: 'battery', status: 'Normal', levels: ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'] },
   ];
 
-  const recentEvents = [
-    { title: 'High Risk Detected', desc: 'Abrupt acceleration', time: '10:18 AM', type: 'critical' },
-    { title: 'Alcohol Level Warning', desc: 'Detected 0.18 mg/L', time: '09:52 AM', type: 'warning' },
-    { title: 'Normal Driving', desc: 'All parameters normal', time: '09:36 AM', type: 'safe' },
-    { title: 'High Temperature', desc: 'Cabin temperature 42°C', time: '09:21 AM', type: 'warning' },
-  ];
+  const mappedEvents = recentEvents.map(e => ({
+    title: e.status === "CRITICAL" ? "High Risk Detected" : e.status === "WARNING" ? "Safety Warning" : "Status Change",
+    desc: e.reason || "Normal Driving",
+    time: new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    type: e.status.toLowerCase()
+  }));
+
+  const riskScore = vehicleStatus?.current_risk_score ?? vehicleStatus?.risk_score ?? 0;
+  const currentStatus = vehicleStatus?.current_status ?? vehicleStatus?.status ?? "SAFE";
 
   return (
     <div className="p-6 space-y-6">
       {/* Top Row Grid (Current Vehicle Status & Vehicle Info) */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-5" data-purpose="status-overview-section">
         {/* Current Vehicle Status Card */}
-        <div className="lg:col-span-7 bg-brand-surface border border-brand-border rounded-2xl p-6 flex flex-col justify-between shadow-lg" data-purpose="vehicle-status-card">
-          <h3 className="text-sm font-semibold text-brand-secondaryText uppercase tracking-wider mb-4">Current Vehicle Status</h3>
+        <div className="lg:col-span-7 bg-brand-surface border border-brand-border rounded-2xl p-6 flex flex-col justify-between shadow-lg relative" data-purpose="vehicle-status-card">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-sm font-semibold text-brand-secondaryText uppercase tracking-wider">Current Vehicle Status</h3>
+            <div className={`px-2 py-1 rounded text-[10px] font-bold ${wsStatus === 'connected' ? 'bg-brand-safe/20 text-brand-safe' : 'bg-brand-critical/20 text-brand-critical'}`}>
+              LIVE CONNECTION: {wsStatus.toUpperCase()}
+            </div>
+          </div>
           <div className="flex flex-col md:flex-row items-center justify-between gap-6 py-2">
             {/* Shield & Status Banner */}
             <div className="flex items-center gap-5">
@@ -35,23 +123,27 @@ export default function Dashboard() {
                 </svg>
               </div>
               <div>
-                <h1 className="text-4xl font-extrabold text-brand-safe tracking-tight">SAFE</h1>
-                <p className="text-xs text-brand-secondaryText mt-1">All parameters are within normal range</p>
+                <h1 className={`text-4xl font-extrabold tracking-tight ${currentStatus === 'SAFE' ? 'text-brand-safe' : currentStatus === 'WARNING' ? 'text-brand-warning' : 'text-brand-critical'}`}>
+                  {currentStatus}
+                </h1>
+                <p className="text-xs text-brand-secondaryText mt-1">
+                  {currentStatus === 'SAFE' ? 'All parameters are within normal range' : 'Safety warnings detected'}
+                </p>
               </div>
             </div>
             {/* Risk Score Metric */}
             <div className="w-full md:w-56 bg-brand-elevated/70 border border-brand-border/60 rounded-xl p-4">
               <span className="text-xs text-brand-muted font-medium block">Risk Score</span>
               <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-3xl font-bold text-white">12</span>
+                <span className="text-3xl font-bold text-white">{riskScore}</span>
                 <span className="text-sm text-brand-muted">/ 100</span>
               </div>
               {/* Progress Bar */}
               <div className="w-full bg-[#1e293b] h-2 rounded-full mt-3 overflow-hidden">
-                <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style={{ width: '12%' }}></div>
+                <div className={`h-full rounded-full ${currentStatus === 'SAFE' ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : currentStatus === 'WARNING' ? 'bg-gradient-to-r from-amber-500 to-orange-400' : 'bg-gradient-to-r from-red-500 to-rose-400'}`} style={{ width: `${Math.min(riskScore, 100)}%` }}></div>
               </div>
               <div className="text-[11px] text-brand-muted mt-2">
-                Last Updated <span className="text-slate-300 font-medium">10:24:32 AM</span>
+                Last Updated <span className="text-slate-300 font-medium">Live</span>
               </div>
             </div>
           </div>
@@ -323,10 +415,10 @@ export default function Dashboard() {
             <h3 className="text-sm font-semibold text-white">Recent Safety Events</h3>
             <a className="text-xs text-brand-accent hover:underline font-medium" href="#">View All</a>
           </div>
-          <div className="space-y-3 text-xs">
-            {recentEvents.map((event, index) => (
+          <div className="space-y-3 text-xs overflow-y-auto max-h-80">
+            {mappedEvents.length > 0 ? mappedEvents.map((event, index) => (
               <EventCard key={index} {...event} />
-            ))}
+            )) : <p className="text-brand-muted text-center italic mt-4">No recent events.</p>}
           </div>
         </div>
       </section>
