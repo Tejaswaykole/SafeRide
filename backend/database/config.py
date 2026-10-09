@@ -11,6 +11,10 @@ if not DATABASE_URL:
     raise ValueError("DATABASE_URL is not configured. Add the Supabase PostgreSQL connection string to the local .env file.")
 
 # Handle Supabase / Render / Railway connection string formatting
+DATABASE_URL = DATABASE_URL.strip()
+if DATABASE_URL.startswith("DATABASE_URL="):
+    DATABASE_URL = DATABASE_URL[len("DATABASE_URL="):].strip()
+DATABASE_URL = DATABASE_URL.strip("\"'").strip()
 DATABASE_URL = DATABASE_URL.replace("[", "").replace("]", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
