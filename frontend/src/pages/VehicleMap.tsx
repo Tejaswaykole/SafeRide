@@ -9,32 +9,43 @@ export default function VehicleMap() {
   const REST_API_URL = getVehicleRestUrl(1);
   const { lastMessage } = useWebSocket(getVehicleWsUrl(1));
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        const [readingsRes, statusRes] = await Promise.all([
-          fetch(`${REST_API_URL}/sensor-readings?limit=50`),
-          fetch(`${REST_API_URL}/status`)
-        ]);
-        if (readingsRes.ok) {
-          const data = await readingsRes.json();
-          setReadings(data);
-        }
-        if (statusRes.ok) {
-          const status = await statusRes.json();
-          if (status.latitude && status.longitude) {
-            setReadings(prev => {
-              if (prev.length > 0 && prev[0].latitude) return prev;
-              return [status, ...prev];
-            });
-          }
-        }
-      } catch (e) {
-        console.error("Failed to fetch locations", e);
+  const fetchLocationsData = async () => {
+    try {
+      const [readingsRes, statusRes] = await Promise.all([
+        fetch(`${REST_API_URL}/sensor-readings?limit=50`),
+        fetch(`${REST_API_URL}/status`)
+      ]);
+      if (readingsRes.ok) {
+        const data = await readingsRes.json();
+        setReadings(data);
       }
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        if (status.latitude && status.longitude) {
+          setReadings(prev => {
+            if (prev.length > 0 && prev[0].latitude === status.latitude && prev[0].longitude === status.longitude) {
+              return prev;
+            }
+            return [status, ...prev.slice(0, 49)];
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch locations", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchLocationsData();
+    // Auto-poll every 3 seconds to ensure real-time tracking even if WS is silent
+    const interval = setInterval(fetchLocationsData, 3000);
+    const handleFocus = () => fetchLocationsData();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
     };
-    fetchInitialData();
-  }, []);
+  }, [REST_API_URL]);
 
   useEffect(() => {
     if (lastMessage && (lastMessage.type === 'vehicle_status' || lastMessage.type === 'location_update') && lastMessage.latitude) {

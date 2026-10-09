@@ -31,7 +31,6 @@ export default function Header() {
   }, []);
 
   useEffect(() => {
-    // Fetch initial notifications
     const fetchEvents = async () => {
       try {
         const res = await fetch(`${getVehicleRestUrl(VEHICLE_ID)}/events?limit=5`);
@@ -40,10 +39,12 @@ export default function Header() {
           setNotifications(data);
         }
       } catch (e) {
-        console.error("Failed to fetch notifications", e);
+        console.warn("Failed to fetch notifications", e);
       }
     };
     fetchEvents();
+    const interval = setInterval(fetchEvents, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

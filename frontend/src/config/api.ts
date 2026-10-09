@@ -14,24 +14,24 @@ export const getApiBaseUrl = (): string => {
     return envApiUrl.replace(/\/+$/, '');
   }
   const host = getHost();
+  // If running in production (e.g. Vercel, Netlify, custom domain) without explicit env var, default to live Render backend
+  if (host !== 'localhost' && host !== '127.0.0.1' && !host.startsWith('192.168.') && !host.startsWith('10.')) {
+    return 'https://saferide-9s02.onrender.com';
+  }
   const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:';
   return `${protocol}//${host}:8000`;
 };
 
 export const getWsBaseUrl = (): string => {
-  if (envApiUrl) {
-    const cleanUrl = envApiUrl.replace(/\/+$/, '');
-    if (cleanUrl.startsWith('https://')) {
-      return cleanUrl.replace('https://', 'wss://');
-    }
-    if (cleanUrl.startsWith('http://')) {
-      return cleanUrl.replace('http://', 'ws://');
-    }
-    return `wss://${cleanUrl.replace(/^wss?:\/\//, '')}`;
+  const apiUrl = getApiBaseUrl();
+  const cleanUrl = apiUrl.replace(/\/+$/, '');
+  if (cleanUrl.startsWith('https://')) {
+    return cleanUrl.replace('https://', 'wss://');
   }
-  const host = getHost();
-  const wsProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${wsProtocol}//${host}:8000`;
+  if (cleanUrl.startsWith('http://')) {
+    return cleanUrl.replace('http://', 'ws://');
+  }
+  return `wss://${cleanUrl.replace(/^wss?:\/\//, '')}`;
 };
 
 export const getVehicleRestUrl = (vehicleId: number = 1): string => {

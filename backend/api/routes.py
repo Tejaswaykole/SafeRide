@@ -50,7 +50,12 @@ async def websocket_endpoint(websocket: WebSocket, vehicle_id: str):
     try:
         while True:
             # Keep connection alive, though we only push from backend to client
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            if "ping" in data:
+                try:
+                    await websocket.send_text('{"type":"pong"}')
+                except Exception:
+                    pass
     except WebSocketDisconnect:
         manager.disconnect(websocket, vehicle_id)
 

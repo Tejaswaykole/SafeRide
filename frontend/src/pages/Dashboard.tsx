@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import SensorCard from '../components/SensorCard';
 import EventCard from '../components/EventCard';
 import RealMap from '../components/RealMap';
@@ -54,52 +54,71 @@ export default function Dashboard() {
 
   const { status: wsStatus, lastMessage } = useWebSocket(WS_URL);
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        const [statusRes, eventsRes, sensorsRes, trendRes] = await Promise.all([
-          fetch(`${REST_API_URL}/status`),
-          fetch(`${REST_API_URL}/events?limit=50`),
-          fetch(`${REST_API_URL}/sensor-readings?limit=1`),
-          fetch(`${REST_API_URL}/risk-trend?limit=25`)
-        ]);
-        
-        if (statusRes.ok) {
-          const statusData = await statusRes.json();
-          setVehicleStatus(statusData);
-          if (statusData.critical_latched || statusData.admin_cutoff) {
-            setIsLatchedCritical(true);
-            if (statusData.reason) setLatchedReason(statusData.reason);
-          } else if (statusData.current_status === 'CRITICAL') {
-            if (statusData.reason) setLatchedReason(statusData.reason);
-          }
-          if (statusData.admin_timer > 0) {
-            setCountdown(statusData.admin_timer);
-          } else if (statusData.critical_timer > 0) {
-            setCountdown(statusData.critical_timer);
-          } else if (statusData.critical_active && !statusData.critical_latched) {
-            setCountdown(60);
-          }
+  const fetchDashboardData = useCallback(async (isInitial = false) => {
+    try {
+      const [statusRes, eventsRes, sensorsRes, trendRes] = await Promise.all([
+        fetch(`${REST_API_URL}/status`),
+        fetch(`${REST_API_URL}/events?limit=50`),
+        fetch(`${REST_API_URL}/sensor-readings?limit=1`),
+        fetch(`${REST_API_URL}/risk-trend?limit=25`)
+      ]);
+      
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setVehicleStatus(statusData);
+        if (statusData.critical_latched || statusData.admin_cutoff) {
+          setIsLatchedCritical(true);
+          if (statusData.reason) setLatchedReason(statusData.reason);
+        } else if (statusData.current_status === 'CRITICAL') {
+          if (statusData.reason) setLatchedReason(statusData.reason);
+        } else if (statusData.current_status === 'SAFE' && !statusData.critical_latched) {
+          setIsLatchedCritical(false);
+          setLatchedReason(null);
         }
-        if (eventsRes.ok) setRecentEvents(await eventsRes.json());
-        if (sensorsRes.ok) {
-          const sensors = await sensorsRes.json();
-          if (sensors.length > 0) setLatestSensors(sensors[0]);
+
+        if (statusData.admin_timer > 0) {
+          setCountdown(statusData.admin_timer);
+        } else if (statusData.critical_timer > 0) {
+          setCountdown(statusData.critical_timer);
+        } else if (statusData.critical_active && !statusData.critical_latched) {
+          setCountdown(prev => (prev > 0 ? prev : 60));
+        } else if (!statusData.critical_active && !statusData.critical_latched && !statusData.admin_cutoff) {
+          setCountdown(0);
         }
-        if (trendRes.ok) {
-          const trendData = await trendRes.json();
-          if (Array.isArray(trendData) && trendData.length > 0) {
-            setRiskTrend(trendData);
-          }
+      }
+
+      if (eventsRes.ok) {
+        const eventsData = await eventsRes.json();
+        setRecentEvents(eventsData);
+      }
+
+      if (sensorsRes.ok) {
+        const sensors = await sensorsRes.json();
+        if (sensors.length > 0) {
+          setLatestSensors(sensors[0]);
         }
-      } catch (e) {
-        console.error("Failed to fetch initial data", e);
-      } finally {
+      }
+
+      if (trendRes.ok) {
+        const trendData = await trendRes.json();
+        if (Array.isArray(trendData) && trendData.length > 0) {
+          setRiskTrend(trendData);
+        }
+      }
+    } catch (e) {
+      if (isInitial) {
+        console.error("Failed to fetch initial dashboard data", e);
+      }
+    } finally {
+      if (isInitial) {
         setIsLoading(false);
       }
-    };
-    fetchInitialData();
-  }, []);
+    }
+  }, [REST_API_URL]);
+
+  useEffect(() => {
+    fetchDashboardData(true);
+  }, [fetchDashboardData]);
 
   // Update when WebSocket delivers new status or events
   useEffect(() => {
@@ -184,22 +203,24 @@ export default function Dashboard() {
     }
   }, [lastMessage, vehicleStatus]);
 
-  // Fallback periodic poll to keep trend alive if WS disconnects
+  // Dual Real-time Synchronization:
+  // Active fast polling when disconnected (2.5s), periodic background sync when connected (6s)
   useEffect(() => {
-    if (wsStatus === 'connected') return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${REST_API_URL}/risk-trend?limit=25`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            setRiskTrend(data);
-          }
-        }
-      } catch {}
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [wsStatus, REST_API_URL]);
+    const pollIntervalMs = wsStatus === 'connected' ? 6000 : 2500;
+    const interval = setInterval(() => {
+      fetchDashboardData(false);
+    }, pollIntervalMs);
+
+    const handleFocus = () => {
+      fetchDashboardData(false);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [wsStatus, fetchDashboardData]);
 
   // Smooth local 1-second countdown ticker
   useEffect(() => {
@@ -242,6 +263,7 @@ export default function Dashboard() {
           gyro_x: 0, gyro_y: 0, gyro_z: 0,
           temperature: 30.0
         }].slice(-25));
+        setTimeout(() => fetchDashboardData(false), 500);
       } else {
         setActionMessage(data.detail || "Failed to trigger admin cutoff");
       }
@@ -290,6 +312,7 @@ export default function Dashboard() {
           gyro_x: 0, gyro_y: 0, gyro_z: 0,
           temperature: 30.0
         }].slice(-25));
+        setTimeout(() => fetchDashboardData(false), 500);
       } else {
         setActionMessage(data.detail || "Failed to reset system");
       }

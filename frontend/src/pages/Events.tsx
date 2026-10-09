@@ -1,26 +1,56 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { formatISTDateTime } from '../utils/time';
-import { getVehicleRestUrl } from '../config/api';
+import { getVehicleRestUrl, getVehicleWsUrl } from '../config/api';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 export default function Events() {
   const [events, setEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { lastMessage } = useWebSocket(getVehicleWsUrl(1));
+
+  const fetchEvents = useCallback(async (showRefreshingState = false) => {
+    if (showRefreshingState) setIsRefreshing(true);
+    try {
+      const res = await fetch(`${getVehicleRestUrl(1)}/events?limit=100`);
+      if (res.ok) {
+        setEvents(await res.json());
+      }
+    } catch (e) {
+      console.warn("Failed to fetch events", e);
+    } finally {
+      setIsLoading(false);
+      if (showRefreshingState) {
+        setTimeout(() => setIsRefreshing(false), 300);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        const res = await fetch(`${getVehicleRestUrl(1)}/events?limit=100`);
-        if (res.ok) {
-          setEvents(await res.json());
-        }
-      } catch (e) {
-        console.error("Failed to fetch events", e);
-      } finally {
-        setIsLoading(false);
-      }
+    fetchEvents(false);
+    // Auto-refresh events every 3.5 seconds in background
+    const interval = setInterval(() => {
+      fetchEvents(false);
+    }, 3500);
+
+    const handleFocus = () => fetchEvents(false);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
     };
-    fetchEvents();
-  }, []);
+  }, [fetchEvents]);
+
+  // Instant real-time WebSocket push for new events
+  useEffect(() => {
+    if (lastMessage && lastMessage.type === 'safety_event') {
+      setEvents(prev => {
+        if (prev.some(e => e.id === lastMessage.id)) return prev;
+        return [lastMessage, ...prev].slice(0, 100);
+      });
+    }
+  }, [lastMessage]);
 
   const getStatusColor = (status: string) => {
     if (status === 'SAFE') return 'text-brand-safe bg-brand-safe/10 border-brand-safe/20';
@@ -35,14 +65,27 @@ export default function Events() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Risk Events History</h1>
           <p className="text-sm text-brand-muted">Comprehensive log of all safety alerts and system changes.</p>
         </div>
-        <button onClick={() => window.location.reload()} className="px-4 py-2 bg-brand-elevated hover:bg-brand-border border border-brand-border rounded-lg text-sm font-medium transition text-white">
-          Refresh Data
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 border text-emerald-400 bg-emerald-950/60 border-emerald-500/30">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Live Auto-Sync Active</span>
+          </div>
+          <button 
+            onClick={() => fetchEvents(true)} 
+            disabled={isRefreshing}
+            className="px-4 py-2 bg-brand-elevated hover:bg-brand-border border border-brand-border rounded-lg text-sm font-medium transition text-white flex items-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            <span>{isRefreshing ? 'Syncing...' : 'Sync Now'}</span>
+          </button>
+        </div>
       </div>
 
       <div className="bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-lg">
