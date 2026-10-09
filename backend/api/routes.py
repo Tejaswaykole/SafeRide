@@ -124,8 +124,10 @@ def get_vehicle_status(vehicle_id: int, db: Session = Depends(get_db)):
         effective_engine = "OFF"
     elif crit_active and crit_rem > 0:
         effective_engine = "ON"
+    elif (status.current_status == SafetyStatus.CRITICAL or str(status.current_status).endswith("CRITICAL")) and not is_latched:
+        effective_engine = "ON"
     else:
-        effective_engine = status.engine_state
+        effective_engine = status.engine_state or "ON"
 
     effective_status = SafetyStatus.CRITICAL if (is_latched or crit_active) else status.current_status
     effective_risk = 100 if is_latched else (85 if crit_active else status.current_risk_score)
@@ -326,7 +328,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         v_state["critical_latched"] = True
         v_state["critical_reason"] = "OFFED BY ADMIN"
         v_state["critical_timer"] = admin_remaining
-    elif v_state.get("critical_latched", False) or data.critical_latched:
+    elif (v_state.get("critical_latched", False) or data.critical_latched) and not data.critical_active and (data.critical_timer is None or data.critical_timer <= 0) and not (v_state.get("critical_active", False) and v_state.get("critical_timer", 0) > 0):
         # 1-minute timer has ALREADY expired, engine is locked OFF until manual reset!
         decision["status"] = SafetyStatus.CRITICAL
         decision["risk_score"] = max(decision["risk_score"], 100)
@@ -335,16 +337,17 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         v_state["critical_active"] = False
         v_state["critical_latched"] = True
         v_state["critical_timer"] = 0
-    elif decision["status"] == SafetyStatus.CRITICAL or data.critical_active or v_state.get("critical_active", False):
+    elif decision["status"] == SafetyStatus.CRITICAL or data.critical_active or v_state.get("critical_active", False) or (data.critical_timer is not None and data.critical_timer > 0):
         # Critical condition triggered or countdown in progress: Run 1-minute countdown timer!
         if not v_state.get("critical_active", False) or v_state.get("critical_start", 0.0) == 0.0:
             v_state["critical_start"] = time.time()
             v_state["critical_active"] = True
             v_state["critical_reason"] = decision.get("reason") or "CRITICAL SAFETY WARNING"
             v_state["critical_timer"] = 60
+            v_state["critical_latched"] = False
 
         elapsed = time.time() - v_state.get("critical_start", time.time())
-        if data.critical_timer is not None and data.critical_timer > 0 and not v_state.get("critical_active", False):
+        if data.critical_timer is not None and data.critical_timer > 0:
             remaining = data.critical_timer
         else:
             remaining = max(0, int(60 - elapsed))

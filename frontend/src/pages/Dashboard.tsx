@@ -66,23 +66,21 @@ export default function Dashboard() {
       if (statusRes.ok) {
         const statusData = await statusRes.json();
         setVehicleStatus(statusData);
-        if (statusData.critical_latched || statusData.admin_cutoff) {
+        if (statusData.admin_cutoff) {
           setIsLatchedCritical(true);
+          if (statusData.admin_timer > 0) setCountdown(statusData.admin_timer);
+        } else if (statusData.critical_latched && (statusData.critical_timer == null || statusData.critical_timer <= 0)) {
+          setIsLatchedCritical(true);
+          setCountdown(0);
           if (statusData.reason) setLatchedReason(statusData.reason);
-        } else if (statusData.current_status === 'CRITICAL') {
+        } else if (statusData.current_status === 'CRITICAL' || statusData.status === 'CRITICAL' || statusData.critical_active) {
+          setIsLatchedCritical(false);
           if (statusData.reason) setLatchedReason(statusData.reason);
+          const rem = statusData.critical_timer > 0 ? statusData.critical_timer : 60;
+          setCountdown(prev => (prev > 0 ? Math.min(prev, rem) : rem));
         } else if (statusData.current_status === 'SAFE' && !statusData.critical_latched) {
           setIsLatchedCritical(false);
           setLatchedReason(null);
-        }
-
-        if (statusData.admin_timer > 0) {
-          setCountdown(statusData.admin_timer);
-        } else if (statusData.critical_timer > 0) {
-          setCountdown(statusData.critical_timer);
-        } else if (statusData.critical_active && !statusData.critical_latched) {
-          setCountdown(prev => (prev > 0 ? prev : 60));
-        } else if (!statusData.critical_active && !statusData.critical_latched && !statusData.admin_cutoff) {
           setCountdown(0);
         }
       }
@@ -127,22 +125,20 @@ export default function Dashboard() {
         setVehicleStatus(lastMessage);
 
         // Manage Critical Latched State & 1-Minute Countdown
-        if (lastMessage.critical_latched) {
-          setIsLatchedCritical(true);
-          setCountdown(0);
-          if (lastMessage.reason) setLatchedReason(lastMessage.reason);
-        } else if (lastMessage.admin_cutoff) {
+        if (lastMessage.admin_cutoff) {
           setIsLatchedCritical(true);
           if (lastMessage.admin_timer > 0) {
             setCountdown(lastMessage.admin_timer);
           }
-        } else if (lastMessage.status === 'CRITICAL' || lastMessage.critical_active) {
+        } else if (lastMessage.critical_latched && (lastMessage.critical_timer == null || lastMessage.critical_timer <= 0)) {
+          setIsLatchedCritical(true);
+          setCountdown(0);
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
-          if (lastMessage.critical_timer > 0) {
-            setCountdown(lastMessage.critical_timer);
-          } else if (countdown === 0 && !isLatchedCritical) {
-            setCountdown(60);
-          }
+        } else if (lastMessage.status === 'CRITICAL' || lastMessage.critical_active) {
+          setIsLatchedCritical(false);
+          if (lastMessage.reason) setLatchedReason(lastMessage.reason);
+          const rem = lastMessage.critical_timer > 0 ? lastMessage.critical_timer : 60;
+          setCountdown(prev => (prev > 0 ? Math.min(prev, rem) : rem));
         } else if (lastMessage.reason?.includes('RESET') || (lastMessage.status === 'SAFE' && !lastMessage.critical_latched)) {
           setIsLatchedCritical(false);
           setLatchedReason(null);

@@ -70,7 +70,7 @@ class RiskEngine:
         if alcohol_critical or ((alcohol_warn_p1 or alcohol_warn_p2) and rash_driving_detected):
             status = SafetyStatus.CRITICAL
             risk_score = 85
-            engine_state = 0
+            engine_state = 1  # Engine stays ON during 1-minute warning countdown; cuts OFF after timer completes
             buzzer_action = 1
             reason = "HEAVY ALCOHOL DETECTED" if alcohol_critical else "ALCOHOL + RASH CRITICAL"
         elif alcohol_warn_p2:
