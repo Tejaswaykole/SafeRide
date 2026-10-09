@@ -26,14 +26,18 @@ def apply_scenario(payload, scenario):
     if scenario == "rash":
         payload["accel_x"] += random.uniform(3.0, 5.0)
         payload["gyro_y"] += random.uniform(200.0, 300.0)
-    elif scenario == "alcohol":
+    elif scenario == "alcohol_p1":
         payload["blow_detected"] = True
-        payload["alcohol_value"] = random.uniform(1200, 1500)
-    elif scenario == "critical":
+        payload["alcohol_value"] = random.uniform(550, 720)
+    elif scenario == "alcohol_p2":
         payload["blow_detected"] = True
-        payload["alcohol_value"] = random.uniform(1200, 1500)
-        payload["accel_x"] += random.uniform(3.0, 5.0)
-        payload["gyro_y"] += random.uniform(200.0, 300.0)
+        payload["alcohol_value"] = random.uniform(780, 950)
+    elif scenario in ("alcohol", "critical", "alcohol_crit"):
+        payload["blow_detected"] = True
+        payload["alcohol_value"] = random.uniform(1050, 1400)
+        if scenario == "critical":
+            payload["accel_x"] += random.uniform(3.0, 5.0)
+            payload["gyro_y"] += random.uniform(200.0, 300.0)
     return payload
 
 def reset_vehicle(device_id):
@@ -58,7 +62,7 @@ def reset_vehicle(device_id):
 def run_simulation(args):
     scenario_sequence = [args.scenario]
     if args.scenario == "cycle":
-        scenario_sequence = ["normal", "normal", "rash", "rash", "normal", "alcohol", "alcohol", "normal", "critical", "critical", "normal"]
+        scenario_sequence = ["normal", "normal", "rash", "normal", "alcohol_p1", "alcohol_p1", "normal", "alcohol_p2", "alcohol_p2", "normal", "critical", "normal"]
         
     print(f"Starting SafeRide Simulator (Target: {BASE_URL})")
     print(f"Device: {args.device_id}, Interval: {args.interval}s")
@@ -116,7 +120,7 @@ def run_simulation(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SafeRide Sensor Simulator")
-    parser.add_argument("--scenario", choices=["normal", "rash", "alcohol", "critical", "cycle"], default="normal", help="Simulation scenario")
+    parser.add_argument("--scenario", choices=["normal", "rash", "alcohol_p1", "alcohol_p2", "alcohol", "critical", "cycle"], default="normal", help="Simulation scenario")
     parser.add_argument("--interval", type=float, default=1.0, help="Interval between requests in seconds")
     parser.add_argument("--device_id", type=str, default="SAFERIDE-001", help="Device ID to simulate")
     parser.add_argument("--reset", action="store_true", help="Reset vehicle after stopping")
