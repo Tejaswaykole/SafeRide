@@ -48,7 +48,7 @@ export default function SensorData() {
       setReadings(prev => {
         const newReading = {
           id: Date.now(),
-          timestamp: lastMessage.timestamp || new Date().toISOString(),
+          timestamp: lastMessage.timestamp_ist || lastMessage.timestamp || new Date().toISOString(),
           alcohol_value: lastMessage.alcohol_value,
           accel_x: lastMessage.accel_x ?? 0,
           accel_y: lastMessage.accel_y ?? 0,

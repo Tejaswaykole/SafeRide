@@ -177,8 +177,8 @@ def get_vehicle_status(vehicle_id: int, db: Session = Depends(get_db)):
         "admin_timer": admin_rem,
         "server_time_ist": get_ist_time_str(),
         "timestamp_ist": get_ist_now().isoformat(),
-        "last_seen": status.last_seen,
-        "updated_at": status.updated_at
+        "last_seen": status.last_seen.replace(tzinfo=timezone.utc) if status.last_seen else datetime.now(timezone.utc),
+        "updated_at": status.updated_at.replace(tzinfo=timezone.utc) if status.updated_at else datetime.now(timezone.utc)
     }
     return SystemStatusResponse(**status_dict)
 
@@ -187,9 +187,9 @@ def get_vehicle_events(vehicle_id: int, limit: int = 50, offset: int = 0, db: Se
     events = db.query(RiskEvent).filter(RiskEvent.vehicle_id == vehicle_id)\
                .order_by(RiskEvent.created_at.desc())\
                .offset(offset).limit(limit).all()
-    # Map created_at to timestamp for schema
+    # Map created_at to timestamp with UTC tzinfo for schema
     for e in events:
-        e.timestamp = e.created_at
+        e.timestamp = e.created_at.replace(tzinfo=timezone.utc) if e.created_at else datetime.now(timezone.utc)
     return events
 
 @router.get("/vehicles/{vehicle_id}/sensor-readings", response_model=list[SensorReadingResponse])
@@ -197,9 +197,9 @@ def get_vehicle_readings(vehicle_id: int, limit: int = 20, offset: int = 0, db: 
     readings = db.query(SensorReading).filter(SensorReading.vehicle_id == vehicle_id)\
                  .order_by(SensorReading.created_at.desc())\
                  .offset(offset).limit(limit).all()
-    # Map created_at to timestamp for schema
+    # Map created_at to timestamp with UTC tzinfo for schema
     for r in readings:
-        r.timestamp = r.created_at
+        r.timestamp = r.created_at.replace(tzinfo=timezone.utc) if r.created_at else datetime.now(timezone.utc)
     return readings
 
 @router.get("/vehicles/{vehicle_id}/risk-trend")
@@ -239,7 +239,7 @@ def get_vehicle_risk_trend(vehicle_id: int, limit: int = 30, db: Session = Depen
         
         trend.append({
             "id": r.id,
-            "timestamp": r.created_at.isoformat(),
+            "timestamp": r.created_at.replace(tzinfo=timezone.utc).isoformat() if r.created_at else datetime.now(timezone.utc).isoformat(),
             "risk_score": score,
             "status": status_val,
             "alcohol_value": float(r.alcohol_value or 0),
@@ -480,7 +480,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         "accel_x": data.accel_x, "accel_y": data.accel_y, "accel_z": data.accel_z,
         "gyro_x": data.gyro_x, "gyro_y": data.gyro_y, "gyro_z": data.gyro_z,
         "temperature": data.temperature,
-        "timestamp": reading.created_at.isoformat()
+        "timestamp": reading.created_at.replace(tzinfo=timezone.utc).isoformat() if reading.created_at else get_ist_now().isoformat()
     }
     background_tasks.add_task(manager.broadcast, ws_status_payload, str(vehicle.id))
 
@@ -498,7 +498,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
             "buzzer_action": new_event.buzzer_action,
             "latitude": new_event.latitude,
             "longitude": new_event.longitude,
-            "timestamp": new_event.created_at.isoformat(),
+            "timestamp": new_event.created_at.replace(tzinfo=timezone.utc).isoformat() if new_event.created_at else get_ist_now().isoformat(),
             "timestamp_ist": get_ist_now().isoformat()
         }
         background_tasks.add_task(manager.broadcast, ws_event_payload, str(vehicle.id))
