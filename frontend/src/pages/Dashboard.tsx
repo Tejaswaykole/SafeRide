@@ -640,8 +640,10 @@ export default function Dashboard() {
         : isEngineOn 
         ? 'Running' 
         : 'Cutoff / Stopped', 
-      levels: isEngineOn && (!isCritical || countdown > 0)
-        ? (isCritical ? ['bg-amber-500', 'bg-amber-500', 'bg-brand-border'] : ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe'])
+      levels: isCritical 
+        ? ['bg-red-500', 'bg-red-500', 'bg-red-500']
+        : isEngineOn 
+        ? ['bg-brand-safe', 'bg-brand-safe', 'bg-brand-safe']
         : ['bg-red-500', 'bg-red-500', 'bg-red-500'] 
     },
   ];
@@ -687,18 +689,10 @@ export default function Dashboard() {
 
       {/* PERSISTENT CRITICAL EMERGENCY & ENGINE LOCKOUT BANNER */}
       {(!isWarningStatus && (isCritical || countdown > 0 || isAdminCutoff || vehicleStatus?.critical_active)) && (
-        <div className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl transition-all ${
-          isAdminCutoff 
-            ? 'bg-red-950/90 border-red-500 text-red-100 shadow-[0_0_40px_rgba(239,68,68,0.45)]' 
-            : isEngineOn && countdown > 0
-            ? 'bg-amber-950/85 border-amber-500 text-amber-100 shadow-[0_0_35px_rgba(245,158,11,0.4)]'
-            : 'bg-red-950/90 border-red-500 text-red-100 shadow-[0_0_40px_rgba(239,68,68,0.45)]'
-        } animate-pulse`}>
+        <div className="p-4 sm:p-5 rounded-2xl border-2 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl transition-all bg-red-950/90 border-red-500 text-red-100 shadow-[0_0_40px_rgba(239,68,68,0.45)] animate-pulse">
           <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 text-3xl font-black ${
-              isEngineOn && countdown > 0 && !isAdminCutoff ? 'bg-amber-500 text-black' : 'bg-red-600 text-white'
-            } shadow-lg`}>
-              {isEngineOn && countdown > 0 && !isAdminCutoff ? '⏱️' : '⚠️'}
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 text-3xl font-black bg-red-600 text-white shadow-lg">
+              🚨
             </div>
             <div>
               <div className="text-lg sm:text-xl font-black tracking-wide uppercase flex flex-wrap items-center gap-2">
@@ -711,14 +705,12 @@ export default function Dashboard() {
                 </span>
                 <span className={`text-xs px-2.5 py-0.5 rounded-full border font-extrabold ${
                   isEngineOn 
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-400' 
+                    ? 'bg-red-500/25 text-red-100 border-red-400' 
                     : 'bg-black/60 border-red-400 text-red-300'
                 }`}>
                   {isEngineOn ? `ENGINE ON (CUTOFF IN ${countdown}s)` : 'ENGINE OFF'}
                 </span>
-                <span className={`text-xs px-2.5 py-0.5 rounded-full border font-bold ${
-                  isEngineOn ? 'bg-amber-500/30 text-amber-200 border-amber-400/50' : 'bg-red-500/20 border-red-400/40 text-red-200'
-                }`}>
+                <span className="text-xs px-2.5 py-0.5 rounded-full border font-bold bg-red-500/20 border-red-400/50 text-red-200">
                   {isEngineOn ? '1-MIN WARNING TIMER' : 'LATCHED LOCKED'}
                 </span>
               </div>
@@ -739,9 +731,9 @@ export default function Dashboard() {
           
           <div className="flex items-center gap-3 flex-shrink-0 w-full md:w-auto justify-end">
             {countdown > 0 && (
-              <div className="bg-black/70 border border-amber-500/40 rounded-xl px-4 py-2 flex items-center gap-2.5">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-300">Countdown:</span>
-                <span className="text-2xl font-black font-mono text-amber-300 tracking-wider">
+              <div className="bg-black/80 border-2 border-red-500/60 rounded-xl px-4 py-2 flex items-center gap-2.5 shadow-[0_0_20px_rgba(239,68,68,0.35)]">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-red-200">Countdown:</span>
+                <span className="text-2xl font-black font-mono text-red-400 tracking-wider">
                   {countdown}s
                 </span>
               </div>
@@ -773,14 +765,14 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center gap-2">
               <div className={`px-2.5 py-1 rounded-md text-[10px] font-black tracking-wider flex items-center gap-1.5 ${
-                isCritical && countdown > 0 && !isAdminCutoff
-                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.3)] animate-pulse'
+                isCritical
+                  ? 'bg-red-500/25 text-red-300 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-pulse'
                   : isEngineOn 
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_15px_rgba(34,197,94,0.3)]' 
                   : 'bg-red-500/25 text-red-400 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-pulse'
               }`}>
                 <span className={`w-2 h-2 rounded-full ${
-                  isCritical && countdown > 0 && !isAdminCutoff ? 'bg-amber-400 animate-ping' : isEngineOn ? 'bg-emerald-400 animate-ping' : 'bg-red-400 animate-ping'
+                  isCritical ? 'bg-red-400 animate-ping' : isEngineOn ? 'bg-emerald-400 animate-ping' : 'bg-red-400 animate-ping'
                 }`}></span>
                 {isCritical && countdown > 0 && !isAdminCutoff ? `ENGINE ON (${countdown}s)` : isEngineOn ? 'ENGINE ON' : 'ENGINE OFF'}
               </div>
@@ -893,8 +885,8 @@ export default function Dashboard() {
 
           {/* DEDICATED PROMINENT ENGINE STATUS HERO WIDGET */}
           <div className={`mt-4 p-4 rounded-xl border-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all duration-300 ${
-            isCritical && countdown > 0 && !isAdminCutoff
-              ? 'bg-gradient-to-r from-amber-950/70 via-slate-900/80 to-slate-900/60 border-amber-500 shadow-[0_0_30px_rgba(245,158,11,0.35)] animate-pulse'
+            isCritical
+              ? 'bg-gradient-to-r from-red-950/90 via-slate-900/80 to-slate-900/60 border-red-500 shadow-[0_0_35px_rgba(239,68,68,0.45)] animate-pulse'
               : isEngineOn
               ? 'bg-gradient-to-r from-emerald-950/50 via-slate-900/80 to-slate-900/60 border-emerald-500/50 shadow-[0_0_25px_rgba(34,197,94,0.2)]'
               : 'bg-gradient-to-r from-red-950/80 via-slate-900/80 to-slate-900/60 border-red-500 shadow-[0_0_35px_rgba(239,68,68,0.35)]'
@@ -902,8 +894,8 @@ export default function Dashboard() {
             <div className="flex items-center gap-4">
               {/* Engine Icon Ring with pulse */}
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 font-black border-2 transition-all ${
-                isCritical && countdown > 0 && !isAdminCutoff
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-400/60 shadow-[0_0_25px_rgba(245,158,11,0.4)] animate-bounce'
+                isCritical
+                  ? 'bg-red-500/30 text-red-400 border-red-500/70 shadow-[0_0_25px_rgba(239,68,68,0.5)] animate-pulse'
                   : isEngineOn 
                   ? 'bg-emerald-500/20 text-emerald-400 border-emerald-400/50 shadow-[0_0_20px_rgba(34,197,94,0.35)]' 
                   : 'bg-red-500/30 text-red-400 border-red-500/70 shadow-[0_0_25px_rgba(239,68,68,0.5)] animate-pulse'
@@ -933,8 +925,8 @@ export default function Dashboard() {
                     ENGINE STATUS INDICATOR
                   </span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                    isCritical && countdown > 0 && !isAdminCutoff
-                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
+                    isCritical
+                      ? 'bg-red-500/30 text-red-200 border border-red-500/60'
                       : isEngineOn 
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' 
                       : 'bg-red-500/30 text-red-200 border border-red-500/50'
@@ -946,16 +938,14 @@ export default function Dashboard() {
                       : 'CUTOFF / STOPPED'}
                   </span>
                   {isCritical && (
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                      countdown > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40' : 'bg-red-500/20 text-red-300 border border-red-400/40'
-                    }`}>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-500/25 text-red-200 border border-red-400/50">
                       {countdown > 0 ? '1-MIN WARNING TIMER' : 'LATCHED LOCKED'}
                     </span>
                   )}
                 </div>
                 <div className={`text-2xl font-black tracking-tight mt-0.5 flex items-center gap-2.5 ${
-                  isCritical && countdown > 0 && !isAdminCutoff
-                    ? 'text-amber-400'
+                  isCritical
+                    ? 'text-red-400'
                     : isEngineOn 
                     ? 'text-emerald-400' 
                     : 'text-red-400'
@@ -967,7 +957,9 @@ export default function Dashboard() {
                       ? 'ENGINE ON'
                       : 'ENGINE OFF'}
                   </span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-slate-300">
+                  <span className={`text-xs px-2 py-0.5 rounded font-mono ${
+                    isCritical ? 'bg-red-950/70 border border-red-500/40 text-red-300' : 'bg-black/40 border border-white/10 text-slate-300'
+                  }`}>
                     RELAY PIN 23 • LED PIN 13
                   </span>
                 </div>
@@ -1024,8 +1016,12 @@ export default function Dashboard() {
               </div>
               <div className="flex items-center justify-between border-b border-brand-border/40 pb-1.5">
                 <span className="text-brand-muted">Engine Relay Pin</span>
-                <span className={`font-semibold ${isEngineOn ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {isEngineOn ? 'GPIO 23 (RUNNING)' : 'GPIO 23 (CUT OFF)'}
+                <span className={`font-semibold ${isCritical ? 'text-red-400' : isEngineOn ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {isCritical && countdown > 0 
+                    ? `GPIO 23 (CUTOFF IN ${countdown}s)` 
+                    : isEngineOn 
+                    ? 'GPIO 23 (RUNNING)' 
+                    : 'GPIO 23 (CUT OFF)'}
                 </span>
               </div>
             </div>
