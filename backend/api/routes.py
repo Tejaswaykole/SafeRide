@@ -328,7 +328,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         v_state["critical_latched"] = True
         v_state["critical_reason"] = "OFFED BY ADMIN"
         v_state["critical_timer"] = admin_remaining
-    elif (v_state.get("critical_latched", False) or data.critical_latched) and not data.critical_active and (data.critical_timer is None or data.critical_timer <= 0) and not (v_state.get("critical_active", False) and v_state.get("critical_timer", 0) > 0):
+    elif (v_state.get("critical_latched", False) or data.critical_latched) and not data.critical_active and (data.critical_timer is None or data.critical_timer <= 0):
         # 1-minute timer has ALREADY expired, engine is locked OFF until manual reset!
         decision["status"] = SafetyStatus.CRITICAL
         decision["risk_score"] = max(decision["risk_score"], 100)
@@ -337,19 +337,15 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         v_state["critical_active"] = False
         v_state["critical_latched"] = True
         v_state["critical_timer"] = 0
-    elif decision["status"] == SafetyStatus.CRITICAL or data.critical_active or v_state.get("critical_active", False) or (data.critical_timer is not None and data.critical_timer > 0):
-        # Critical condition triggered or countdown in progress: Run 1-minute countdown timer!
-        if not v_state.get("critical_active", False) or v_state.get("critical_start", 0.0) == 0.0:
-            v_state["critical_start"] = time.time()
-            v_state["critical_active"] = True
-            v_state["critical_reason"] = decision.get("reason") or "CRITICAL SAFETY WARNING"
-            v_state["critical_timer"] = 60
-            v_state["critical_latched"] = False
-
-        elapsed = time.time() - v_state.get("critical_start", time.time())
-        if data.critical_timer is not None and data.critical_timer > 0:
-            remaining = data.critical_timer
+    elif decision["status"] == SafetyStatus.CRITICAL or data.critical_active or (data.critical_timer is not None and data.critical_timer > 0):
+        # CRITICAL CONDITION ONLY: Run 1-minute countdown timer synchronized with hardware OLED!
+        if data.critical_timer is not None:
+            remaining = data.critical_timer  # Direct sync with OLED timer on ESP32!
+            v_state["critical_start"] = time.time() - (60 - remaining)
         else:
+            if not v_state.get("critical_active", False) or v_state.get("critical_start", 0.0) == 0.0:
+                v_state["critical_start"] = time.time()
+            elapsed = time.time() - v_state["critical_start"]
             remaining = max(0, int(60 - elapsed))
 
         v_state["critical_timer"] = remaining
@@ -360,6 +356,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
             decision["risk_score"] = max(decision["risk_score"], 85)
             decision["engine_state"] = 1  # ENGINE ON during countdown
             decision["reason"] = v_state.get("critical_reason") or decision.get("reason") or "CRITICAL SAFETY WARNING"
+            v_state["critical_active"] = True
             v_state["critical_latched"] = False
         else:
             # 1-minute timer expired! Engine cuts OFF now!
@@ -370,9 +367,16 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
             v_state["critical_active"] = False
             v_state["critical_latched"] = True
             v_state["critical_timer"] = 0
-    elif data.engine_state is not None:
-        # Reflect exact hardware engine light and relay state in safe/warning operation
-        decision["engine_state"] = data.engine_state
+    else:
+        # NON-CRITICAL (WARNING OR SAFE): STRICTLY NO COUNTDOWN TIMER!
+        v_state["critical_active"] = False
+        v_state["critical_timer"] = 0
+        v_state["critical_start"] = 0.0
+        v_state["critical_latched"] = False
+        if data.engine_state is not None:
+            decision["engine_state"] = data.engine_state
+        else:
+            decision["engine_state"] = 1
 
     # Ensure decision reason is never null
     if not decision.get("reason"):

@@ -73,12 +73,17 @@ export default function Dashboard() {
           setIsLatchedCritical(true);
           setCountdown(0);
           if (statusData.reason) setLatchedReason(statusData.reason);
-        } else if (statusData.current_status === 'CRITICAL' || statusData.status === 'CRITICAL' || statusData.critical_active) {
+        } else if (statusData.current_status === 'CRITICAL' || (statusData.critical_active && statusData.current_status !== 'WARNING')) {
           setIsLatchedCritical(false);
           if (statusData.reason) setLatchedReason(statusData.reason);
-          const rem = statusData.critical_timer > 0 ? statusData.critical_timer : 60;
-          setCountdown(prev => (prev > 0 ? Math.min(prev, rem) : rem));
-        } else if (statusData.current_status === 'SAFE' && !statusData.critical_latched) {
+          // Directly sync timer with hardware OLED display
+          if (statusData.critical_timer != null && statusData.critical_timer > 0) {
+            setCountdown(statusData.critical_timer);
+          } else {
+            setCountdown(prev => (prev > 0 ? prev : 60));
+          }
+        } else {
+          // WARNING OR SAFE: Strictly NO timer! Clear and deactivate countdown
           setIsLatchedCritical(false);
           setLatchedReason(null);
           setCountdown(0);
@@ -134,12 +139,17 @@ export default function Dashboard() {
           setIsLatchedCritical(true);
           setCountdown(0);
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
-        } else if (lastMessage.status === 'CRITICAL' || lastMessage.critical_active) {
+        } else if (lastMessage.status === 'CRITICAL' || (lastMessage.critical_active && lastMessage.status !== 'WARNING')) {
           setIsLatchedCritical(false);
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
-          const rem = lastMessage.critical_timer > 0 ? lastMessage.critical_timer : 60;
-          setCountdown(prev => (prev > 0 ? Math.min(prev, rem) : rem));
-        } else if (lastMessage.reason?.includes('RESET') || (lastMessage.status === 'SAFE' && !lastMessage.critical_latched)) {
+          // Directly sync countdown with hardware OLED display
+          if (lastMessage.critical_timer != null && lastMessage.critical_timer > 0) {
+            setCountdown(lastMessage.critical_timer);
+          } else {
+            setCountdown(prev => (prev > 0 ? prev : 60));
+          }
+        } else {
+          // WARNING OR SAFE: Strictly NO timer! Clear and deactivate countdown
           setIsLatchedCritical(false);
           setLatchedReason(null);
           setCountdown(0);
@@ -221,6 +231,12 @@ export default function Dashboard() {
   // Smooth local 1-second countdown ticker
   useEffect(() => {
     if (countdown <= 0) return;
+    // Strictly do not tick if vehicle is in WARNING or SAFE status
+    if (vehicleStatus?.status === 'WARNING' || vehicleStatus?.current_status === 'WARNING') {
+      setCountdown(0);
+      setIsLatchedCritical(false);
+      return;
+    }
     const interval = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
@@ -232,7 +248,7 @@ export default function Dashboard() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [countdown]);
+  }, [countdown, vehicleStatus?.status, vehicleStatus?.current_status]);
 
   // Remote Admin Actions
   const handleAdminCutoff = async () => {
@@ -347,25 +363,35 @@ export default function Dashboard() {
     vehicleStatus?.reason === "ADMIN SHUTDOWN"
   );
 
+  const isWarningStatus = !isAdminCutoff && Boolean(
+    vehicleStatus?.status === 'WARNING' || 
+    vehicleStatus?.current_status === 'WARNING' ||
+    (alcoholVal >= 500 && alcoholVal <= 1000 && !vehicleStatus?.rash_driving_detected)
+  );
+
   const isCritical = Boolean(
-    isLatchedCritical ||
-    vehicleStatus?.critical_latched ||
-    isAdminCutoff ||
-    vehicleStatus?.status === 'CRITICAL' ||
-    vehicleStatus?.current_status === 'CRITICAL' ||
-    (latestSensors && (latestSensors.alcohol_value ?? 0) > 1000)
+    !isWarningStatus && (
+      isLatchedCritical ||
+      vehicleStatus?.critical_latched ||
+      isAdminCutoff ||
+      vehicleStatus?.status === 'CRITICAL' ||
+      vehicleStatus?.current_status === 'CRITICAL' ||
+      (latestSensors && (latestSensors.alcohol_value ?? 0) > 1000)
+    )
   );
 
   // If Admin cutoff is active, DO NOT show alcohol or MPU per user requirement
   const isAlcoholWarnPhase1 = !isAdminCutoff && Boolean(alcoholVal >= 500 && alcoholVal <= 750);
   const isAlcoholWarnPhase2 = !isAdminCutoff && Boolean(alcoholVal >= 751 && alcoholVal <= 1000);
-  const isAlcoholCrit = !isAdminCutoff && Boolean((alcoholVal > 1000) || (vehicleStatus?.status === 'CRITICAL' && (vehicleStatus?.reason?.includes('ALCOHOL') || alcoholVal >= 500)));
-  const isAlcoholWarn = !isAdminCutoff && (isAlcoholWarnPhase1 || isAlcoholWarnPhase2 || Boolean(vehicleStatus?.alcohol_detected));
+  const isAlcoholCrit = !isAdminCutoff && !isWarningStatus && Boolean((alcoholVal > 1000) || (vehicleStatus?.status === 'CRITICAL' && vehicleStatus?.reason?.includes('ALCOHOL')));
+  const isAlcoholWarn = !isAdminCutoff && (isAlcoholWarnPhase1 || isAlcoholWarnPhase2 || (Boolean(vehicleStatus?.alcohol_detected) && !isAlcoholCrit));
   const isRashWarn = !isAdminCutoff && Boolean(vehicleStatus?.rash_driving_detected);
 
-  const riskScore = isCritical ? 100 : (vehicleStatus?.current_risk_score ?? vehicleStatus?.risk_score ?? 0);
+  const riskScore = isCritical ? 100 : (vehicleStatus?.current_risk_score ?? vehicleStatus?.risk_score ?? (isWarningStatus ? 50 : 10));
   const currentStatus = isAdminCutoff 
     ? "OFFED BY ADMIN" 
+    : isWarningStatus
+    ? "WARNING"
     : isCritical 
     ? "CRITICAL" 
     : (vehicleStatus?.current_status ?? vehicleStatus?.status ?? "SAFE");
@@ -601,7 +627,7 @@ export default function Dashboard() {
       )}
 
       {/* PERSISTENT CRITICAL EMERGENCY & ENGINE LOCKOUT BANNER */}
-      {(isCritical || countdown > 0 || isAdminCutoff || vehicleStatus?.critical_active) && (
+      {(!isWarningStatus && (isCritical || countdown > 0 || isAdminCutoff || vehicleStatus?.critical_active)) && (
         <div className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl transition-all ${
           isAdminCutoff 
             ? 'bg-red-950/90 border-red-500 text-red-100 shadow-[0_0_40px_rgba(239,68,68,0.45)]' 
