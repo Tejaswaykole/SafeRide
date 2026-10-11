@@ -113,7 +113,11 @@ def get_vehicle_status(vehicle_id: int, db: Session = Depends(get_db)):
             v_state["critical_active"] = False
             v_state["critical_latched"] = True
 
-    is_latched = v_state.get("critical_latched", False) or admin_active
+    is_latched = (
+        v_state.get("critical_latched", False) or 
+        (admin_active and admin_rem == 0) or
+        (status.engine_state == "OFF" and (status.current_status == SafetyStatus.CRITICAL or str(status.current_status).endswith("CRITICAL")))
+    )
 
     # Determine Engine State:
     # 1. If admin cutoff: OFF immediately
@@ -166,9 +170,9 @@ def get_vehicle_status(vehicle_id: int, db: Session = Depends(get_db)):
         "distance": v_state.get("distance", 0.0),
         "latitude": cur_lat,
         "longitude": cur_lon,
-        "critical_active": is_latched or crit_active,
+        "critical_active": False if is_latched else (crit_active and crit_rem > 0),
         "critical_latched": is_latched,
-        "critical_timer": admin_rem if admin_active else crit_rem,
+        "critical_timer": admin_rem if admin_active else (0 if is_latched else crit_rem),
         "admin_cutoff": admin_active,
         "admin_timer": admin_rem,
         "server_time_ist": get_ist_time_str(),
@@ -324,6 +328,11 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
 
     # If Admin Cutoff is active, STRICTLY suppress alcohol / MPU warnings
     # Per user request: "shows offed by the admin and 1 minute timer starts but dont show alchol dectected or mpu"
+    is_already_latched = (
+        v_state.get("critical_latched", False) or 
+        data.critical_latched or 
+        (data.engine_state == 0 and decision["status"] == SafetyStatus.CRITICAL and not v_state.get("critical_active", False))
+    )
     if admin_cutoff_active:
         decision["status"] = SafetyStatus.CRITICAL
         decision["risk_score"] = 100
@@ -332,29 +341,32 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         decision["rash_driving_detected"] = False
         decision["engine_state"] = 0
         decision["buzzer_action"] = 0
-        v_state["critical_active"] = True
+        v_state["critical_active"] = False if admin_remaining == 0 else True
         v_state["critical_latched"] = True
         v_state["critical_reason"] = "OFFED BY ADMIN"
         v_state["critical_timer"] = admin_remaining
-    elif (v_state.get("critical_latched", False) or data.critical_latched) and not data.critical_active and (data.critical_timer is None or data.critical_timer <= 0) and not is_crit_in_progress:
+    elif is_already_latched:
         # 1-minute timer has ALREADY expired, engine is locked OFF until manual reset!
+        # Supreme priority: CANNOT restart a new 1-minute timer!
         decision["status"] = SafetyStatus.CRITICAL
         decision["risk_score"] = max(decision["risk_score"], 100)
         decision["engine_state"] = 0
-        decision["reason"] = v_state.get("critical_reason", "CRITICAL ENGINE SHUTDOWN (LATCHED)")
+        decision["reason"] = v_state.get("critical_reason") or "CRITICAL ENGINE SHUTDOWN (LATCHED)"
         v_state["critical_active"] = False
         v_state["critical_latched"] = True
         v_state["critical_timer"] = 0
+        v_state["critical_start"] = 0.0
     elif is_crit_trigger or is_crit_in_progress:
         # CRITICAL COUNTDOWN PROTOCOL: Must run to 0s completion even if alcohol drops!
         if data.critical_timer is not None and data.critical_timer > 0:
             remaining = data.critical_timer  # Direct sync with OLED timer on ESP32!
             v_state["critical_start"] = time.time() - (60 - remaining)
-        elif data.critical_latched or (data.critical_timer is not None and data.critical_timer <= 0 and not data.critical_active and not is_crit_in_progress):
+        elif data.critical_latched:
             remaining = 0
         else:
             if not v_state.get("critical_active", False) or v_state.get("critical_start", 0.0) == 0.0:
                 v_state["critical_start"] = time.time()
+                v_state["critical_reason"] = decision.get("reason") or "CRITICAL SAFETY WARNING"
             elapsed = time.time() - v_state["critical_start"]
             remaining = max(0, int(60 - elapsed))
 
@@ -377,6 +389,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
             v_state["critical_active"] = False
             v_state["critical_latched"] = True
             v_state["critical_timer"] = 0
+            v_state["critical_start"] = 0.0
     else:
         # NON-CRITICAL (WARNING OR SAFE): STRICTLY NO COUNTDOWN TIMER!
         v_state["critical_active"] = False
@@ -456,9 +469,9 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         "longitude": effective_lon,
         "speed": v_state.get("speed", 0.0),
         "distance": v_state.get("distance", 0.0),
-        "critical_active": v_state.get("critical_active", False) or is_critical_latched,
+        "critical_active": False if is_critical_latched else v_state.get("critical_active", False),
         "critical_latched": is_critical_latched,
-        "critical_timer": admin_remaining if admin_cutoff_active else v_state.get("critical_timer", 0),
+        "critical_timer": 0 if is_critical_latched else (admin_remaining if admin_cutoff_active else v_state.get("critical_timer", 0)),
         "admin_cutoff": admin_cutoff_active,
         "admin_timer": admin_remaining,
         "server_time_ist": get_ist_time_str(),
@@ -505,9 +518,9 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         jerk_beeps=decision.get("jerk_beeps", 0),
         speed=v_state.get("speed", 0.0),
         distance=v_state.get("distance", 0.0),
-        critical_active=v_state.get("critical_active", False) or is_critical_latched,
+        critical_active=False if is_critical_latched else v_state.get("critical_active", False),
         critical_latched=is_critical_latched,
-        critical_timer=admin_remaining if admin_cutoff_active else v_state.get("critical_timer", 0),
+        critical_timer=0 if is_critical_latched else (admin_remaining if admin_cutoff_active else v_state.get("critical_timer", 0)),
         admin_cutoff=admin_cutoff_active,
         admin_timer=admin_remaining,
         last_latitude=v_state.get("last_known_lat") or v_state.get("latitude"),

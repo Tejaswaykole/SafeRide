@@ -67,18 +67,36 @@ export default function Dashboard() {
       if (statusRes.ok) {
         const statusData = await statusRes.json();
         setVehicleStatus(statusData);
+        const isEngineOff = statusData.engine_state === 'OFF' || statusData.engine_state === 0;
+        const isCriticalStatus = statusData.current_status === 'CRITICAL' || statusData.status === 'CRITICAL';
+
         if (statusData.admin_cutoff) {
           setIsLatchedCritical(true);
           if (statusData.admin_timer > 0) {
             setCountdown(statusData.admin_timer);
             lastSyncRef.current = { timer: statusData.admin_timer, timestamp: Date.now() };
+          } else {
+            setCountdown(0);
+            lastSyncRef.current = null;
           }
-        } else if (statusData.critical_latched && (statusData.critical_timer == null || statusData.critical_timer <= 0)) {
+        } else if (
+          statusData.critical_latched || 
+          isLatchedCritical ||
+          (isEngineOff && isCriticalStatus) ||
+          (isCriticalStatus && (statusData.critical_timer == null || statusData.critical_timer <= 0) && !statusData.critical_active)
+        ) {
+          // LATCHED CRITICAL: Engine locked OFF after 1-min timer expired or safety cutoff
           setIsLatchedCritical(true);
           setCountdown(0);
           lastSyncRef.current = null;
           if (statusData.reason) setLatchedReason(statusData.reason);
-        } else if (statusData.current_status === 'CRITICAL' || statusData.critical_active || (statusData.critical_timer != null && statusData.critical_timer > 0)) {
+        } else if (
+          !isEngineOff &&
+          !isLatchedCritical &&
+          !statusData.critical_latched &&
+          (statusData.critical_active || (statusData.critical_timer != null && statusData.critical_timer > 0) || isCriticalStatus)
+        ) {
+          // ACTIVE 1-MINUTE WARNING COUNTDOWN (Engine still ON, counting down to shutdown):
           setIsLatchedCritical(false);
           if (statusData.reason) setLatchedReason(statusData.reason);
           // Directly sync timer with hardware OLED display
@@ -88,7 +106,7 @@ export default function Dashboard() {
           } else {
             setCountdown(prev => (prev > 0 ? prev : 60));
           }
-        } else if (statusData.reason?.includes('RESET') || (statusData.current_status === 'SAFE' && !statusData.critical_latched && countdown <= 0)) {
+        } else if (statusData.reason?.includes('RESET') || (statusData.current_status === 'SAFE' && !statusData.critical_latched && !isLatchedCritical)) {
           // Normal safe state when no countdown is active
           setIsLatchedCritical(false);
           setLatchedReason(null);
@@ -136,19 +154,37 @@ export default function Dashboard() {
       if (lastMessage.type === 'vehicle_status') {
         setVehicleStatus(lastMessage);
 
+        const isEngineOff = lastMessage.engine_state === 'OFF' || lastMessage.engine_state === 0;
+        const isCriticalStatus = lastMessage.status === 'CRITICAL' || lastMessage.current_status === 'CRITICAL';
+
         // Manage Critical Latched State & 1-Minute Countdown
         if (lastMessage.admin_cutoff) {
           setIsLatchedCritical(true);
           if (lastMessage.admin_timer > 0) {
             setCountdown(lastMessage.admin_timer);
             lastSyncRef.current = { timer: lastMessage.admin_timer, timestamp: Date.now() };
+          } else {
+            setCountdown(0);
+            lastSyncRef.current = null;
           }
-        } else if (lastMessage.critical_latched && (lastMessage.critical_timer == null || lastMessage.critical_timer <= 0)) {
+        } else if (
+          lastMessage.critical_latched || 
+          isLatchedCritical ||
+          (isEngineOff && isCriticalStatus) ||
+          (isCriticalStatus && (lastMessage.critical_timer == null || lastMessage.critical_timer <= 0) && !lastMessage.critical_active)
+        ) {
+          // LATCHED CRITICAL: Engine locked OFF after 1-min timer expired or safety cutoff
           setIsLatchedCritical(true);
           setCountdown(0);
           lastSyncRef.current = null;
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
-        } else if (lastMessage.status === 'CRITICAL' || lastMessage.critical_active || (lastMessage.critical_timer != null && lastMessage.critical_timer > 0)) {
+        } else if (
+          !isEngineOff &&
+          !isLatchedCritical &&
+          !lastMessage.critical_latched &&
+          (lastMessage.critical_active || (lastMessage.critical_timer != null && lastMessage.critical_timer > 0) || isCriticalStatus)
+        ) {
+          // ACTIVE 1-MINUTE WARNING COUNTDOWN (Engine still ON, counting down to shutdown):
           setIsLatchedCritical(false);
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
           // Directly sync countdown with hardware OLED display
@@ -158,7 +194,7 @@ export default function Dashboard() {
           } else {
             setCountdown(prev => (prev > 0 ? prev : 60));
           }
-        } else if (lastMessage.reason?.includes('RESET') || (lastMessage.status === 'SAFE' && !lastMessage.critical_latched && countdown <= 0)) {
+        } else if (lastMessage.reason?.includes('RESET') || (lastMessage.status === 'SAFE' && !lastMessage.critical_latched && !isLatchedCritical)) {
           // Manual RESET or confirmed SAFE when no critical countdown is running
           setIsLatchedCritical(false);
           setLatchedReason(null);
@@ -250,11 +286,13 @@ export default function Dashboard() {
         if (expectedRem <= 0) {
           // When 1-minute countdown reaches 0, the engine turns OFF and stays locked in latched critical!
           setIsLatchedCritical(true);
+          lastSyncRef.current = null;
         }
       } else {
         setCountdown(prev => {
           if (prev <= 1) {
             setIsLatchedCritical(true);
+            lastSyncRef.current = null;
             return 0;
           }
           return prev - 1;
