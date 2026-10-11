@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import SensorCard from '../components/SensorCard';
 import EventCard from '../components/EventCard';
 import RealMap from '../components/RealMap';
@@ -45,8 +45,9 @@ export default function Dashboard() {
   // Dynamic Real-time Risk Score & Sensor Telemetry Trend History
   const [riskTrend, setRiskTrend] = useState<any[]>([]);
 
-  // Countdown timer state
+  // Countdown timer state & hardware lockstep reference
   const [countdown, setCountdown] = useState<number>(0);
+  const lastSyncRef = useRef<{ timer: number; timestamp: number } | null>(null);
 
   // Latched Critical State: holds system in CRITICAL mode & engine locked OFF until reset
   const [isLatchedCritical, setIsLatchedCritical] = useState<boolean>(false);
@@ -68,25 +69,31 @@ export default function Dashboard() {
         setVehicleStatus(statusData);
         if (statusData.admin_cutoff) {
           setIsLatchedCritical(true);
-          if (statusData.admin_timer > 0) setCountdown(statusData.admin_timer);
+          if (statusData.admin_timer > 0) {
+            setCountdown(statusData.admin_timer);
+            lastSyncRef.current = { timer: statusData.admin_timer, timestamp: Date.now() };
+          }
         } else if (statusData.critical_latched && (statusData.critical_timer == null || statusData.critical_timer <= 0)) {
           setIsLatchedCritical(true);
           setCountdown(0);
+          lastSyncRef.current = null;
           if (statusData.reason) setLatchedReason(statusData.reason);
-        } else if (statusData.current_status === 'CRITICAL' || (statusData.critical_active && statusData.current_status !== 'WARNING')) {
+        } else if (statusData.current_status === 'CRITICAL' || statusData.critical_active || (statusData.critical_timer != null && statusData.critical_timer > 0)) {
           setIsLatchedCritical(false);
           if (statusData.reason) setLatchedReason(statusData.reason);
           // Directly sync timer with hardware OLED display
           if (statusData.critical_timer != null && statusData.critical_timer > 0) {
             setCountdown(statusData.critical_timer);
+            lastSyncRef.current = { timer: statusData.critical_timer, timestamp: Date.now() };
           } else {
             setCountdown(prev => (prev > 0 ? prev : 60));
           }
-        } else {
-          // WARNING OR SAFE: Strictly NO timer! Clear and deactivate countdown
+        } else if (statusData.reason?.includes('RESET') || (statusData.current_status === 'SAFE' && !statusData.critical_latched && countdown <= 0)) {
+          // Normal safe state when no countdown is active
           setIsLatchedCritical(false);
           setLatchedReason(null);
           setCountdown(0);
+          lastSyncRef.current = null;
         }
       }
 
@@ -134,25 +141,29 @@ export default function Dashboard() {
           setIsLatchedCritical(true);
           if (lastMessage.admin_timer > 0) {
             setCountdown(lastMessage.admin_timer);
+            lastSyncRef.current = { timer: lastMessage.admin_timer, timestamp: Date.now() };
           }
         } else if (lastMessage.critical_latched && (lastMessage.critical_timer == null || lastMessage.critical_timer <= 0)) {
           setIsLatchedCritical(true);
           setCountdown(0);
+          lastSyncRef.current = null;
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
-        } else if (lastMessage.status === 'CRITICAL' || (lastMessage.critical_active && lastMessage.status !== 'WARNING')) {
+        } else if (lastMessage.status === 'CRITICAL' || lastMessage.critical_active || (lastMessage.critical_timer != null && lastMessage.critical_timer > 0)) {
           setIsLatchedCritical(false);
           if (lastMessage.reason) setLatchedReason(lastMessage.reason);
           // Directly sync countdown with hardware OLED display
           if (lastMessage.critical_timer != null && lastMessage.critical_timer > 0) {
             setCountdown(lastMessage.critical_timer);
+            lastSyncRef.current = { timer: lastMessage.critical_timer, timestamp: Date.now() };
           } else {
             setCountdown(prev => (prev > 0 ? prev : 60));
           }
-        } else {
-          // WARNING OR SAFE: Strictly NO timer! Clear and deactivate countdown
+        } else if (lastMessage.reason?.includes('RESET') || (lastMessage.status === 'SAFE' && !lastMessage.critical_latched && countdown <= 0)) {
+          // Manual RESET or confirmed SAFE when no critical countdown is running
           setIsLatchedCritical(false);
           setLatchedReason(null);
           setCountdown(0);
+          lastSyncRef.current = null;
         }
 
         setLatestSensors({
@@ -228,27 +239,30 @@ export default function Dashboard() {
     };
   }, [wsStatus, fetchDashboardData]);
 
-  // Smooth local 1-second countdown ticker
+  // Smooth local countdown ticker synced to hardware timestamp
   useEffect(() => {
     if (countdown <= 0) return;
-    // Strictly do not tick if vehicle is in WARNING or SAFE status
-    if (vehicleStatus?.status === 'WARNING' || vehicleStatus?.current_status === 'WARNING') {
-      setCountdown(0);
-      setIsLatchedCritical(false);
-      return;
-    }
     const interval = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
+      if (lastSyncRef.current) {
+        const elapsedSec = Math.floor((Date.now() - lastSyncRef.current.timestamp) / 1000);
+        const expectedRem = Math.max(0, lastSyncRef.current.timer - elapsedSec);
+        setCountdown(expectedRem);
+        if (expectedRem <= 0) {
           // When 1-minute countdown reaches 0, the engine turns OFF and stays locked in latched critical!
           setIsLatchedCritical(true);
-          return 0;
         }
-        return prev - 1;
-      });
-    }, 1000);
+      } else {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            setIsLatchedCritical(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }
+    }, 250); // Checks every 250ms for lockstep synchronization with ESP32 OLED
     return () => clearInterval(interval);
-  }, [countdown, vehicleStatus?.status, vehicleStatus?.current_status]);
+  }, [countdown > 0]);
 
   // Remote Admin Actions
   const handleAdminCutoff = async () => {
@@ -301,6 +315,7 @@ export default function Dashboard() {
         setLatchedReason(null);
         setActionMessage("System Reset Complete! Engine Restored & Operational.");
         setCountdown(0);
+        lastSyncRef.current = null;
         setVehicleStatus((prev: any) => ({
           ...prev,
           current_status: 'SAFE',
@@ -363,21 +378,27 @@ export default function Dashboard() {
     vehicleStatus?.reason === "ADMIN SHUTDOWN"
   );
 
-  const isWarningStatus = !isAdminCutoff && Boolean(
+  // Critical sequence is actively in progress or latched:
+  const isCriticalSequenceActive = Boolean(
+    isAdminCutoff ||
+    isLatchedCritical ||
+    vehicleStatus?.critical_latched ||
+    vehicleStatus?.critical_active ||
+    vehicleStatus?.status === 'CRITICAL' ||
+    vehicleStatus?.current_status === 'CRITICAL' ||
+    countdown > 0
+  );
+
+  // Warning ONLY applies when NO critical sequence is in progress:
+  const isWarningStatus = !isCriticalSequenceActive && !isAdminCutoff && Boolean(
     vehicleStatus?.status === 'WARNING' || 
     vehicleStatus?.current_status === 'WARNING' ||
     (alcoholVal >= 500 && alcoholVal <= 1000 && !vehicleStatus?.rash_driving_detected)
   );
 
   const isCritical = Boolean(
-    !isWarningStatus && (
-      isLatchedCritical ||
-      vehicleStatus?.critical_latched ||
-      isAdminCutoff ||
-      vehicleStatus?.status === 'CRITICAL' ||
-      vehicleStatus?.current_status === 'CRITICAL' ||
-      (latestSensors && (latestSensors.alcohol_value ?? 0) > 1000)
-    )
+    isCriticalSequenceActive ||
+    (!isWarningStatus && latestSensors && (latestSensors.alcohol_value ?? 0) > 1000)
   );
 
   // If Admin cutoff is active, DO NOT show alcohol or MPU per user requirement

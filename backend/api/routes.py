@@ -314,6 +314,14 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
     # Run Risk Engine
     decision = RiskEngine.evaluate(data)
     
+    # Check if a critical countdown is currently in progress
+    is_crit_in_progress = v_state.get("critical_active", False) and (v_state.get("critical_timer", 0) > 0 or v_state.get("critical_start", 0.0) > 0)
+    is_crit_trigger = (
+        decision["status"] == SafetyStatus.CRITICAL or 
+        data.critical_active or 
+        (data.critical_timer is not None and data.critical_timer > 0)
+    )
+
     # If Admin Cutoff is active, STRICTLY suppress alcohol / MPU warnings
     # Per user request: "shows offed by the admin and 1 minute timer starts but dont show alchol dectected or mpu"
     if admin_cutoff_active:
@@ -328,7 +336,7 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         v_state["critical_latched"] = True
         v_state["critical_reason"] = "OFFED BY ADMIN"
         v_state["critical_timer"] = admin_remaining
-    elif (v_state.get("critical_latched", False) or data.critical_latched) and not data.critical_active and (data.critical_timer is None or data.critical_timer <= 0):
+    elif (v_state.get("critical_latched", False) or data.critical_latched) and not data.critical_active and (data.critical_timer is None or data.critical_timer <= 0) and not is_crit_in_progress:
         # 1-minute timer has ALREADY expired, engine is locked OFF until manual reset!
         decision["status"] = SafetyStatus.CRITICAL
         decision["risk_score"] = max(decision["risk_score"], 100)
@@ -337,11 +345,13 @@ def ingest_sensor_data(data: SensorDataCreate, background_tasks: BackgroundTasks
         v_state["critical_active"] = False
         v_state["critical_latched"] = True
         v_state["critical_timer"] = 0
-    elif decision["status"] == SafetyStatus.CRITICAL or data.critical_active or (data.critical_timer is not None and data.critical_timer > 0):
-        # CRITICAL CONDITION ONLY: Run 1-minute countdown timer synchronized with hardware OLED!
-        if data.critical_timer is not None:
+    elif is_crit_trigger or is_crit_in_progress:
+        # CRITICAL COUNTDOWN PROTOCOL: Must run to 0s completion even if alcohol drops!
+        if data.critical_timer is not None and data.critical_timer > 0:
             remaining = data.critical_timer  # Direct sync with OLED timer on ESP32!
             v_state["critical_start"] = time.time() - (60 - remaining)
+        elif data.critical_latched or (data.critical_timer is not None and data.critical_timer <= 0 and not data.critical_active and not is_crit_in_progress):
+            remaining = 0
         else:
             if not v_state.get("critical_active", False) or v_state.get("critical_start", 0.0) == 0.0:
                 v_state["critical_start"] = time.time()
